@@ -83,15 +83,27 @@ def callbacks(c):
     elif c.data.startswith("aprobar_") or c.data.startswith("rechazar_"):
         if c.from_user.id!=ADMIN_ID: return
         uid=int(c.data.split("_")[1])
+        # FIX 1: NO BORRAR LA JUGADA, SOLO AGREGAR ESTADO
         if "aprobar" in c.data:
-            acumulado.pop(uid, None); bot.send_message(uid, "✅ *APROBADA* 🍀 Mucha suerte!", parse_mode="Markdown"); bot.edit_message_text(f"✅ Aprobado {uid}", c.message.chat.id, c.message.message_id)
+            acumulado.pop(uid, None)
+            bot.send_message(uid, "✅ *Su jugada ha sido aprobada, mucha suerte* 🍀\nGracias por jugar en BOLITA RECOGIDA.FLORIDA 💎", parse_mode="Markdown")
+            try:
+                texto_original = c.message.text
+                bot.edit_message_text(f"{texto_original}\n\n✅ *APROBADA*", c.message.chat.id, c.message.message_id, parse_mode="Markdown")
+            except:
+                bot.edit_message_text(f"✅ APROBADA - {uid}", c.message.chat.id, c.message.message_id)
         else:
             if uid in acumulado:
                 for num,cant,tipo in acumulado[uid]['lineas']:
                     if tipo=="fijo": tope_fijo[num]-=cant
                     else: tope_corrido[num]-=cant
                 acumulado.pop(uid, None)
-            bot.send_message(uid, "❌ Rechazada"); bot.edit_message_text(f"❌ Rechazado {uid}", c.message.chat.id, c.message.message_id)
+            bot.send_message(uid, "❌ *Su jugada ha sido rechazada.* Contacte al admin.", parse_mode="Markdown")
+            try:
+                texto_original = c.message.text
+                bot.edit_message_text(f"{texto_original}\n\n❌ *RECHAZADA*", c.message.chat.id, c.message.message_id, parse_mode="Markdown")
+            except:
+                bot.edit_message_text(f"❌ RECHAZADA - {uid}", c.message.chat.id, c.message.message_id)
 
 @bot.message_handler(commands=['ganador'])
 def ganador(m):
@@ -116,7 +128,6 @@ def jugada(m):
     jugadas_nuevas = []
     texto_nuevo = ""; total_nuevo = 0
 
-    # LINEA 50/59=20
     linea = re.search(r'(\d{1,2})\s*/\s*(\d{1,2})\s*=\s*(\d+)', txt)
     if linea:
         ini=int(linea.group(1)); fin=int(linea.group(2)); cant=int(linea.group(3))
@@ -131,7 +142,6 @@ def jugada(m):
         texto_nuevo = f"LÍNEA {str(ini).zfill(2)}/{str(fin).zfill(2)}={cant} = ${cant} c/u = ${cant*10}\n"
         total_nuevo = cant*10
     else:
-        # 10-50-10
         doble = re.search(r'(\d{1,2})\s*-\s*(\d+)\s*-\s*(\d+)', txt)
         if doble:
             num=doble.group(1).zfill(2); fijo=int(doble.group(2)); corr=int(doble.group(3))
@@ -140,7 +150,6 @@ def jugada(m):
             jugadas_nuevas.append((num, fijo, "fijo")); jugadas_nuevas.append((num, corr, "corrido"))
             texto_nuevo = f"{num} - {fijo} fijo - {corr} corrido\n"; total_nuevo = fijo+corr
         else:
-            # 10-10 simple
             simple = re.search(r'(\d{1,2})\s*-\s*(\d+)$', txt)
             if not simple: simple = re.search(r'(\d{1,2})\s*-\s*(\d+)\b', txt)
             if not simple:
@@ -160,7 +169,6 @@ def jugada(m):
         texto_final=texto_nuevo; total_final=total_nuevo; lineas_final=jugadas_nuevas
     acumulado[uid]={"texto":texto_final,"total":total_final,"lineas":lineas_final}
 
-    # 3 y 4 - TICKET NUEVO SIN DOBLE Y CON MENSAJE ANTI-ESTAFA
     bot.reply_to(m,
 f"🧾 *TICKET CONFIRMADO*\n"
 f"━━━━━━━━━━━━\n"
@@ -181,7 +189,6 @@ def foto(m):
     if uid not in acumulado: bot.reply_to(m, "Primero manda tu jugada. Ej: 10-10"); return
     data=acumulado[uid]
     nombre = f"@{m.from_user.username}" if m.from_user.username else m.from_user.first_name
-    # 5. AHORA SI AL CANAL ADMIN, LIMPIO, SIN DICCIONARIO
     kb=InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("✅ Aprobar", callback_data=f"aprobar_{uid}"), InlineKeyboardButton("❌ Rechazar", callback_data=f"rechazar_{uid}"))
 
@@ -197,7 +204,8 @@ f"━━━━━━━━━━━━"
     )
     bot.forward_message(CANAL_ADMIN_ID, m.chat.id, m.message_id)
     bot.send_message(CANAL_ADMIN_ID, texto_admin, parse_mode="Markdown", reply_markup=kb)
-    bot.reply_to(m, "📤 *Captura recibida.* Esperando aprobación del admin 🙏", parse_mode="Markdown", reply_markup=boton_atras())
+    # FIX 2 y 3: SIN BOTON ATRAS Y MENSAJE NUEVO
+    bot.reply_to(m, "📤 *Captura enviada, por favor espere un momento que su jugada sea verificada y aprobada. Gracias por preferirnos* 🙏", parse_mode="Markdown")
 
-print("TODO ARREGLADO - 4 FOTOS FIX")
+print("FIX FINAL - APROBACION NO BORRA")
 bot.infinity_polling()
