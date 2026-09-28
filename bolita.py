@@ -1,6 +1,8 @@
-import os, re, pytz, telebot
+import os, re, pytz, telebot, time, logging
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from datetime import datetime
+
+logging.basicConfig(level=logging.INFO)
 
 TOKEN = os.getenv("TOKEN") or "PEGA_TU_TOKEN"
 ADMIN_ID = 7450751212
@@ -117,54 +119,44 @@ def set_noche(m):
     try: _, f,c1,c2=m.text.split(); resultados_hoy["noche"]={"fijo":f.zfill(2),"c1":c1.zfill(2),"c2":c2.zfill(2)}; bot.reply_to(m, f"✅ NOCHE {f} - topes reset"); tope_fijo.update({str(i).zfill(2):0 for i in range(100)}); tope_corrido.update({str(i).zfill(2):0 for i in range(100)}); acumulado.clear()
     except: pass
 
-# FIX: AHORA LEE VARIAS JUGADAS EN UN SOLO MENSAJE
 @bot.message_handler(func=lambda m: True, content_types=['text'])
 def jugada(m):
     if m.text.startswith('/'): return
     if not horario_abierto(): bot.reply_to(m, "⏰ Cerrado 9AM-1PM y 3PM-9PM", reply_markup=boton_atras()); return
 
-    lineas_txt = m.text.strip().split('\n')
+    txt_original = m.text.strip()
     jugadas_nuevas = []
     texto_nuevo = ""
     total_nuevo = 0
 
-    for linea_raw in lineas_txt:
-        linea_raw = linea_raw.strip()
-        if not linea_raw: continue
+    for match in re.finditer(r'(\d{1,2})\s*/\s*(\d{1,2})\s*=\s*(\d+)', txt_original):
+        ini=int(match.group(1)); fin=int(match.group(2)); cant=int(match.group(3))
+        if abs(fin-ini)!=9: bot.reply_to(m, f"❌ Línea {match.group(0)} debe ser 10 números. Ej: 10/19=20", reply_markup=boton_atras()); return
+        if ini>fin: ini,fin=fin,ini
+        for n in range(ini, fin+1):
+            ns=str(n).zfill(2)
+            if tope_fijo[ns] + cant > 200:
+                bot.reply_to(m, f"⛔ FIJO *{ns} COMPLETO* lleva ${tope_fijo[ns]}/200. Quedan ${200-tope_fijo[ns]}", parse_mode="Markdown", reply_markup=boton_atras()); return
+        for n in range(ini, fin+1):
+            ns=str(n).zfill(2); jugadas_nuevas.append((ns, cant, "fijo"))
+        texto_nuevo += f"LÍNEA {str(ini).zfill(2)}/{str(fin).zfill(2)}={cant} = ${cant} c/u = ${cant*10}\n"
+        total_nuevo += cant*10
 
-        # LINEA 50/59=20
-        linea = re.search(r'(\d{1,2})\s*/\s*(\d{1,2})\s*=\s*(\d+)', linea_raw)
-        if linea:
-            ini=int(linea.group(1)); fin=int(linea.group(2)); cant=int(linea.group(3))
-            if abs(fin-ini)!=9: bot.reply_to(m, f"❌ Línea {linea_raw} debe ser 10 números. Ej: 50/59=20", reply_markup=boton_atras()); return
-            if ini>fin: ini,fin=fin,ini
-            for n in range(ini, fin+1):
-                ns=str(n).zfill(2)
-                if tope_fijo[ns] + cant > 200:
-                    bot.reply_to(m, f"⛔ FIJO *{ns} COMPLETO* lleva ${tope_fijo[ns]}/200. Quedan ${200-tope_fijo[ns]}", parse_mode="Markdown", reply_markup=boton_atras()); return
-            for n in range(ini, fin+1):
-                ns=str(n).zfill(2); jugadas_nuevas.append((ns, cant, "fijo"))
-            texto_nuevo += f"LÍNEA {str(ini).zfill(2)}/{str(fin).zfill(2)}={cant} = ${cant} c/u = ${cant*10}\n"
-            total_nuevo += cant*10
-            continue
+    txt_sin_lineas = re.sub(r'(\d{1,2})\s*/\s*(\d{1,2})\s*=\s*(\d+)', ' ', txt_original)
 
-        # 10-50-10
-        doble = re.search(r'(\d{1,2})\s*-\s*(\d+)\s*-\s*(\d+)', linea_raw)
-        if doble:
-            num=doble.group(1).zfill(2); fijo=int(doble.group(2)); corr=int(doble.group(3))
-            if tope_fijo[num] + fijo > 200: bot.reply_to(m, f"⛔ FIJO *{num}* completo Fijo ${tope_fijo[num]}/200", parse_mode="Markdown", reply_markup=boton_atras()); return
-            if tope_corrido[num] + corr > 400: bot.reply_to(m, f"⛔ CORRIDO *{num}* completo Corrido ${tope_corrido[num]}/400", parse_mode="Markdown", reply_markup=boton_atras()); return
-            jugadas_nuevas.append((num, fijo, "fijo")); jugadas_nuevas.append((num, corr, "corrido"))
-            texto_nuevo += f"{num} - {fijo} fijo - {corr} corrido\n"; total_nuevo += fijo+corr
-            continue
+    for match in re.finditer(r'(\d{1,2})\s*-\s*(\d+)\s*-\s*(\d+)', txt_sin_lineas):
+        num=match.group(1).zfill(2); fijo=int(match.group(2)); corr=int(match.group(3))
+        if tope_fijo[num] + fijo > 200: bot.reply_to(m, f"⛔ FIJO *{num}* completo ${tope_fijo[num]}/200", parse_mode="Markdown", reply_markup=boton_atras()); return
+        if tope_corrido[num] + corr > 400: bot.reply_to(m, f"⛔ CORRIDO *{num}* completo ${tope_corrido[num]}/400", parse_mode="Markdown", reply_markup=boton_atras()); return
+        jugadas_nuevas.append((num, fijo, "fijo")); jugadas_nuevas.append((num, corr, "corrido"))
+        texto_nuevo += f"{num} - {fijo} fijo - {corr} corrido\n"; total_nuevo += fijo+corr
 
-        # 10-50
-        simple = re.search(r'(\d{1,2})\s*-\s*(\d+)', linea_raw)
-        if simple:
-            num=simple.group(1).zfill(2); cant=int(simple.group(2))
-            if tope_fijo[num] + cant > 200: bot.reply_to(m, f"⛔ FIJO *{num}* completo ${tope_fijo[num]}/200 quedan ${200-tope_fijo[num]}", parse_mode="Markdown", reply_markup=boton_atras()); return
-            jugadas_nuevas.append((num, cant, "fijo")); texto_nuevo += f"{num}-{cant} fijo\n"; total_nuevo += cant
-            continue
+    txt_sin_dobles = re.sub(r'(\d{1,2})\s*-\s*(\d+)\s*-\s*(\d+)', ' ', txt_sin_lineas)
+
+    for match in re.finditer(r'(\d{1,2})\s*-\s*(\d+)', txt_sin_dobles):
+        num=match.group(1).zfill(2); cant=int(match.group(2))
+        if tope_fijo[num] + cant > 200: bot.reply_to(m, f"⛔ FIJO *{num}* completo ${tope_fijo[num]}/200 quedan ${200-tope_fijo[num]}", parse_mode="Markdown", reply_markup=boton_atras()); return
+        jugadas_nuevas.append((num, cant, "fijo")); texto_nuevo += f"{num}-{cant} fijo\n"; total_nuevo += cant
 
     if not jugadas_nuevas:
         bot.reply_to(m, "❌ Formato mal. Usa:\n`10-10`\n`10-50-10`\n`50/59=20`", parse_mode="Markdown", reply_markup=boton_atras()); return
@@ -174,17 +166,14 @@ def jugada(m):
         else: tope_corrido[num]+=cant
 
     uid=m.from_user.id
-    if uid in acumulado:
-        texto_final=acumulado[uid]['texto']+texto_nuevo; total_final=acumulado[uid]['total']+total_nuevo; lineas_final=acumulado[uid]['lineas']+jugadas_nuevas
-    else:
-        texto_final=texto_nuevo; total_final=total_nuevo; lineas_final=jugadas_nuevas
-    acumulado[uid]={"texto":texto_final,"total":total_final,"lineas":lineas_final}
+    # FIX: NO ACUMULAR VIEJO, SOLO LO NUEVO
+    acumulado[uid]={"texto":texto_nuevo,"total":total_nuevo,"lineas":jugadas_nuevas}
 
     bot.reply_to(m,
 f"🧾 *TICKET CONFIRMADO*\n"
 f"━━━━━━━━━━━━\n"
-f"{texto_final}\n"
-f"💵 Total a pagar: *${total_final}*\n"
+f"{texto_nuevo}\n"
+f"💵 Total a pagar: *${total_nuevo}*\n"
 f"━━━━━━━━━━━━\n"
 f"💳 *Transfiera a:*\n`{TARJETA}`\n"
 f"📱 *Confirme al:*\n`{TELEFONO}`\n"
@@ -217,5 +206,10 @@ f"━━━━━━━━━━━━"
     bot.send_message(CANAL_ADMIN_ID, texto_admin, parse_mode="Markdown", reply_markup=kb)
     bot.reply_to(m, "📤 *Captura enviada, por favor espere un momento que su jugada sea verificada y aprobada. Gracias por preferirnos* 🙏", parse_mode="Markdown")
 
-print("FIX MULTIPLE JUGADAS - 50-50 20-50 etc")
-bot.infinity_polling()
+print("BOT FINAL - SIN PEGADOS Y ANTI CAIDA")
+while True:
+    try:
+        bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
+    except Exception as e:
+        print(f"⚠️ Caída: {e} - Reiniciando 5s...")
+        time.sleep(5)
