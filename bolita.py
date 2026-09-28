@@ -1,4 +1,4 @@
-import os, re, pytz, telebot, time, logging
+import os, re, pytz, telebot, time, logging, threading
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from datetime import datetime
 
@@ -23,12 +23,95 @@ def horario_abierto():
     h = datetime.now(zona).hour + datetime.now(zona).minute/60
     return (9 <= h < 13.1) or (15 <= h < 21.1)
 
+def resetear_topes():
+    tope_fijo.update({str(i).zfill(2):0 for i in range(100)})
+    tope_corrido.update({str(i).zfill(2):0 for i in range(100)})
+    acumulado.clear()
+    return True
+
+def auto_reset_hilo():
+    while True:
+        try:
+            ahora = datetime.now(zona)
+            if ahora.hour == 13 and ahora.minute == 36:
+                resetear_topes()
+                try: bot.send_message(CANAL_ADMIN_ID, "♻️ *AUTO RESET 1:36 PM* - Todos los topes en 0 para la tirada de la noche", parse_mode="Markdown")
+                except: pass
+                time.sleep(60)
+            if ahora.hour == 21 and ahora.minute == 51:
+                resetear_topes()
+                try: bot.send_message(CANAL_ADMIN_ID, "♻️ *AUTO RESET 9:51 PM* - Todos los topes en 0 para mañana", parse_mode="Markdown")
+                except: pass
+                time.sleep(60)
+            time.sleep(30)
+        except: time.sleep(30)
+
+threading.Thread(target=auto_reset_hilo, daemon=True).start()
+
 def menu_principal():
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🎲 JUGAR AHORA", callback_data="jugar"), InlineKeyboardButton("🦩 VER TIRADA FLORIDA", callback_data="ver_ganador"), InlineKeyboardButton("📖 REGLAS Y PAGOS", callback_data="reglas"))
     return kb
 def boton_atras():
     kb = InlineKeyboardMarkup(); kb.add(InlineKeyboardButton("⬅️ ATRÁS AL MENÚ", callback_data="menu")); return kb
+
+def texto_ganador_bonito():
+    dia = resultados_hoy["dia"]
+    noche = resultados_hoy["noche"]
+    txt = f"🦩 *RESULTADOS FLORIDA - {get_fecha()}* 🦩\n"
+    txt += "━━━━━━━━━━━━━━━━━━━━\n\n"
+    txt += "☀️ *TIRADA DEL DÍA - 1:35 PM*\n"
+    if dia:
+        txt += f"🎯 *Fijo:* `{dia['fijo']}`\n"
+        txt += f"🔄 *Corridos:* `{dia['c1']}` - `{dia['c2']}`\n"
+    else:
+        txt += "⏳ *Esperando resultado...*\n"
+    txt += "\n━━━━━━━━━━━━━━━━━━━━\n\n"
+    txt += "🌙 *TIRADA DE LA NOCHE - 9:50 PM*\n"
+    if noche:
+        txt += f"🎯 *Fijo:* `{noche['fijo']}`\n"
+        txt += f"🔄 *Corridos:* `{noche['c1']}` - `{noche['c2']}`\n"
+    else:
+        txt += "⏳ *Esperando resultado...*\n"
+    txt += "\n━━━━━━━━━━━━━━━━━━━━\n"
+    txt += "💎 *BOLITA RECOGIDA.FLORIDA*"
+    return txt
+
+def texto_topes(minimo=1):
+    txt = f"📊 *TOPES ACTUALES - {get_fecha()}*\n"
+    txt += "━━━━━━━━━━━━━━━━━━━━\n"
+    hay = False
+    topados_fijo = []
+    for i in range(100):
+        num = str(i).zfill(2)
+        val = tope_fijo[num]
+        if val >= minimo:
+            topados_fijo.append(f"{num}: ${val}/200")
+            hay = True
+    if topados_fijo:
+        txt += "🎯 *FIJOS:*\n"
+        for j in range(0, len(topados_fijo), 5):
+            txt += " | ".join(topados_fijo[j:j+5]) + "\n"
+    else:
+        txt += "🎯 *FIJOS:* Ninguno\n"
+    txt += "\n━━━━━━━━━━━━━━━━━━━━\n"
+    topados_corr = []
+    for i in range(100):
+        num = str(i).zfill(2)
+        val = tope_corrido[num]
+        if val >= minimo:
+            topados_corr.append(f"{num}: ${val}/400")
+            hay = True
+    if topados_corr:
+        txt += "🔄 *CORRIDOS:*\n"
+        for j in range(0, len(topados_corr), 5):
+            txt += " | ".join(topados_corr[j:j+5]) + "\n"
+    else:
+        txt += "🔄 *CORRIDOS:* Ninguno\n"
+    if not hay:
+        txt += "\n✅ Todo en 0, pueden jugar todo"
+    txt += "\n━━━━━━━━━━━━━━━━━━━━"
+    return txt
 
 BIENVENIDA = (
 "🎱🔥 *¡BIENVENIDOS A JUGAR LA LOTERÍA DE LA FLORIDA!* 🔥🦩\n"
@@ -52,7 +135,7 @@ BIENVENIDA = (
 "👇 Toca un botón para empezar 👇"
 )
 
-try: bot.set_my_commands([BotCommand("start","🎱 Menú"), BotCommand("ganador","🦩 Ver tirada")])
+try: bot.set_my_commands([BotCommand("start","🎱 Menú"), BotCommand("ganador","🦩 Ver tirada"), BotCommand("reset","♻️ Resetear topes"), BotCommand("topes","📊 Ver topados")])
 except: pass
 
 @bot.message_handler(commands=['start'])
@@ -64,22 +147,12 @@ def callbacks(c):
         bot.edit_message_text(BIENVENIDA, c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=menu_principal())
     elif c.data == "jugar":
         kb=InlineKeyboardMarkup(); kb.add(InlineKeyboardButton("⬅️ ATRÁS", callback_data="menu"))
-        bot.edit_message_text(
-"✨ *HAGA SU JUGADA* ✨\n"
-"━━━━━━━━━━━━\n"
-"Ejemplo:\n"
-"`10-10` para fijo\n"
-"`10-50-10` para fijo y corrido\n"
-"`50/59=20` para líneas\n"
-"━━━━━━━━━━━━\n"
-"💡 Línea es del 50 al 59 a 20 pesos c/u = $200 total",
-            c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=kb)
+        bot.edit_message_text("✨ *HAGA SU JUGADA* ✨\n━━━━━━━━━━━━\nEjemplo:\n`10-10` para fijo\n`10-50-10` para fijo y corrido\n`50/59=20` para líneas\n━━━━━━━━━━━━\n💡 Línea es del 50 al 59 a 20 pesos c/u = $200 total", c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=kb)
     elif c.data == "reglas":
         bot.edit_message_text("📖 *REGLAS*\n🎯 FIJO 80 CUP x $1 - Tope $200\n🔄 CORRIDO 20 CUP x $1 - Tope $400", c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=boton_atras())
     elif c.data == "ver_ganador":
-        dia=resultados_hoy["dia"]; noche=resultados_hoy["noche"]; txt=f"🦩 *FLORIDA - {get_fecha()}*\n"; txt+=f"☀️ DÍA: {dia['fijo']} {dia['c1']} {dia['c2']}\n" if dia else "☀️ DÍA: ⏳\n"; txt+=f"🌙 NOCHE: {noche['fijo']} {noche['c1']} {noche['c2']}" if noche else "🌙 NOCHE: ⏳"
         kb=InlineKeyboardMarkup(); kb.add(InlineKeyboardButton("🔄 Actualizar", callback_data="ver_ganador"), InlineKeyboardButton("⬅️ ATRÁS", callback_data="menu"))
-        bot.edit_message_text(txt, c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=kb)
+        bot.edit_message_text(texto_ganador_bonito(), c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=kb)
     elif c.data.startswith("aprobar_") or c.data.startswith("rechazar_"):
         if c.from_user.id!=ADMIN_ID: return
         uid=int(c.data.split("_")[1])
@@ -106,29 +179,50 @@ def callbacks(c):
 
 @bot.message_handler(commands=['ganador'])
 def ganador(m):
-    dia=resultados_hoy["dia"]; noche=resultados_hoy["noche"]; txt=f"🦩 {get_fecha()}\n"; txt+=f"DIA: {dia['fijo']} {dia['c1']} {dia['c2']}\n" if dia else "DIA: ---\n"; txt+=f"NOCHE: {noche['fijo']} {noche['c1']} {noche['c2']}" if noche else "NOCHE: ---"
-    bot.send_message(m.chat.id, txt, parse_mode="Markdown", reply_markup=boton_atras())
+    bot.send_message(m.chat.id, texto_ganador_bonito(), parse_mode="Markdown", reply_markup=boton_atras())
+
 @bot.message_handler(commands=['set_dia'])
 def set_dia(m):
     if not es_admin(m): return
-    try: _, f,c1,c2=m.text.split(); resultados_hoy["dia"]={"fijo":f.zfill(2),"c1":c1.zfill(2),"c2":c2.zfill(2)}; bot.reply_to(m, f"✅ DIA {f}")
+    try:
+        _, f,c1,c2=m.text.split()
+        resultados_hoy["dia"]={"fijo":f.zfill(2),"c1":c1.zfill(2),"c2":c2.zfill(2)}
+        bot.reply_to(m, f"✅ DIA guardado: Fijo {f} Corridos {c1}-{c2}\nRecuerda usar /reset cuando quieras liberar topes")
     except: pass
+
 @bot.message_handler(commands=['set_noche'])
 def set_noche(m):
     if not es_admin(m): return
-    try: _, f,c1,c2=m.text.split(); resultados_hoy["noche"]={"fijo":f.zfill(2),"c1":c1.zfill(2),"c2":c2.zfill(2)}; bot.reply_to(m, f"✅ NOCHE {f} - topes reset"); tope_fijo.update({str(i).zfill(2):0 for i in range(100)}); tope_corrido.update({str(i).zfill(2):0 for i in range(100)}); acumulado.clear()
+    try:
+        _, f,c1,c2=m.text.split()
+        resultados_hoy["noche"]={"fijo":f.zfill(2),"c1":c1.zfill(2),"c2":c2.zfill(2)}
+        bot.reply_to(m, f"✅ NOCHE guardado: Fijo {f} Corridos {c1}-{c2}\nRecuerda usar /reset cuando quieras liberar topes")
     except: pass
+
+@bot.message_handler(commands=['reset'])
+def reset_cmd(m):
+    if not es_admin(m): return
+    resetear_topes()
+    bot.reply_to(m, "♻️ *TODOS LOS TOPES EN 0* - Ya pueden volver a jugar todos los números", parse_mode="Markdown")
+
+@bot.message_handler(commands=['topes'])
+def ver_topes(m):
+    if not es_admin(m): return
+    try:
+        partes = m.text.split()
+        minimo = int(partes[1]) if len(partes) > 1 else 1
+    except:
+        minimo = 1
+    bot.send_message(m.chat.id, texto_topes(minimo), parse_mode="Markdown")
 
 @bot.message_handler(func=lambda m: True, content_types=['text'])
 def jugada(m):
     if m.text.startswith('/'): return
     if not horario_abierto(): bot.reply_to(m, "⏰ Cerrado 9AM-1PM y 3PM-9PM", reply_markup=boton_atras()); return
-
     txt_original = m.text.strip()
     jugadas_nuevas = []
     texto_nuevo = ""
     total_nuevo = 0
-
     for match in re.finditer(r'(\d{1,2})\s*/\s*(\d{1,2})\s*=\s*(\d+)', txt_original):
         ini=int(match.group(1)); fin=int(match.group(2)); cant=int(match.group(3))
         if abs(fin-ini)!=9: bot.reply_to(m, f"❌ Línea {match.group(0)} debe ser 10 números. Ej: 10/19=20", reply_markup=boton_atras()); return
@@ -141,47 +235,26 @@ def jugada(m):
             ns=str(n).zfill(2); jugadas_nuevas.append((ns, cant, "fijo"))
         texto_nuevo += f"LÍNEA {str(ini).zfill(2)}/{str(fin).zfill(2)}={cant} = ${cant} c/u = ${cant*10}\n"
         total_nuevo += cant*10
-
     txt_sin_lineas = re.sub(r'(\d{1,2})\s*/\s*(\d{1,2})\s*=\s*(\d+)', ' ', txt_original)
-
     for match in re.finditer(r'(\d{1,2})\s*-\s*(\d+)\s*-\s*(\d+)', txt_sin_lineas):
         num=match.group(1).zfill(2); fijo=int(match.group(2)); corr=int(match.group(3))
         if tope_fijo[num] + fijo > 200: bot.reply_to(m, f"⛔ FIJO *{num}* completo ${tope_fijo[num]}/200", parse_mode="Markdown", reply_markup=boton_atras()); return
         if tope_corrido[num] + corr > 400: bot.reply_to(m, f"⛔ CORRIDO *{num}* completo ${tope_corrido[num]}/400", parse_mode="Markdown", reply_markup=boton_atras()); return
         jugadas_nuevas.append((num, fijo, "fijo")); jugadas_nuevas.append((num, corr, "corrido"))
         texto_nuevo += f"{num} - {fijo} fijo - {corr} corrido\n"; total_nuevo += fijo+corr
-
     txt_sin_dobles = re.sub(r'(\d{1,2})\s*-\s*(\d+)\s*-\s*(\d+)', ' ', txt_sin_lineas)
-
     for match in re.finditer(r'(\d{1,2})\s*-\s*(\d+)', txt_sin_dobles):
         num=match.group(1).zfill(2); cant=int(match.group(2))
         if tope_fijo[num] + cant > 200: bot.reply_to(m, f"⛔ FIJO *{num}* completo ${tope_fijo[num]}/200 quedan ${200-tope_fijo[num]}", parse_mode="Markdown", reply_markup=boton_atras()); return
         jugadas_nuevas.append((num, cant, "fijo")); texto_nuevo += f"{num}-{cant} fijo\n"; total_nuevo += cant
-
     if not jugadas_nuevas:
         bot.reply_to(m, "❌ Formato mal. Usa:\n`10-10`\n`10-50-10`\n`50/59=20`", parse_mode="Markdown", reply_markup=boton_atras()); return
-
     for num,cant,tipo in jugadas_nuevas:
         if tipo=="fijo": tope_fijo[num]+=cant
         else: tope_corrido[num]+=cant
-
     uid=m.from_user.id
-    # FIX: NO ACUMULAR VIEJO, SOLO LO NUEVO
     acumulado[uid]={"texto":texto_nuevo,"total":total_nuevo,"lineas":jugadas_nuevas}
-
-    bot.reply_to(m,
-f"🧾 *TICKET CONFIRMADO*\n"
-f"━━━━━━━━━━━━\n"
-f"{texto_nuevo}\n"
-f"💵 Total a pagar: *${total_nuevo}*\n"
-f"━━━━━━━━━━━━\n"
-f"💳 *Transfiera a:*\n`{TARJETA}`\n"
-f"📱 *Confirme al:*\n`{TELEFONO}`\n"
-f"━━━━━━━━━━━━\n"
-f"⚠️ *OBLIGATORIO enviar captura de Transfermóvil*\n"
-f"🛡️ No se aceptan capturas editadas o falsas.\n"
-f"Jugada 100% segura con BOLITA RECOGIDA.FLORIDA",
-parse_mode="Markdown")
+    bot.reply_to(m, f"🧾 *TICKET CONFIRMADO*\n━━━━━━━━━━━━\n{texto_nuevo}\n💵 Total a pagar: *${total_nuevo}*\n━━━━━━━━━━━━\n💳 *Transfiera a:*\n`{TARJETA}`\n📱 *Confirme al:*\n`{TELEFONO}`\n━━━━━━━━━━━━\n⚠️ *OBLIGATORIO enviar captura de Transfermóvil*\n🛡️ No se aceptan capturas editadas o falsas.\nJugada 100% segura con BOLITA RECOGIDA.FLORIDA", parse_mode="Markdown")
 
 @bot.message_handler(content_types=['photo'])
 def foto(m):
@@ -191,22 +264,12 @@ def foto(m):
     nombre = f"@{m.from_user.username}" if m.from_user.username else m.from_user.first_name
     kb=InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("✅ Aprobar", callback_data=f"aprobar_{uid}"), InlineKeyboardButton("❌ Rechazar", callback_data=f"rechazar_{uid}"))
-
-    texto_admin = (
-f"🔔 *NUEVA JUGADA*\n"
-f"━━━━━━━━━━━━\n"
-f"👤 Usuario: {nombre}\n"
-f"🆔 ID: `{uid}`\n"
-f"━━━━━━━━━━━━\n"
-f"{data['texto']}\n"
-f"💵 Total: *${data['total']}*\n"
-f"━━━━━━━━━━━━"
-    )
+    texto_admin = (f"🔔 *NUEVA JUGADA*\n━━━━━━━━━━━━\n👤 Usuario: {nombre}\n🆔 ID: `{uid}`\n━━━━━━━━━━━━\n{data['texto']}\n💵 Total: *${data['total']}*\n━━━━━━━━━━━━")
     bot.forward_message(CANAL_ADMIN_ID, m.chat.id, m.message_id)
     bot.send_message(CANAL_ADMIN_ID, texto_admin, parse_mode="Markdown", reply_markup=kb)
     bot.reply_to(m, "📤 *Captura enviada, por favor espere un momento que su jugada sea verificada y aprobada. Gracias por preferirnos* 🙏", parse_mode="Markdown")
 
-print("BOT FINAL - SIN PEGADOS Y ANTI CAIDA")
+print("BOT SEPARADO GANADOR Y RESET + AUTO RESET + TOPES")
 while True:
     try:
         bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
