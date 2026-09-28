@@ -1,4 +1,5 @@
 import os, re, pytz, telebot, time, logging, threading
+from flask import Flask
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from datetime import datetime
 
@@ -16,6 +17,13 @@ acumulado = {}
 resultados_hoy = {"dia": None, "noche": None}
 tope_fijo = {str(i).zfill(2): 0 for i in range(100)}
 tope_corrido = {str(i).zfill(2): 0 for i in range(100)}
+
+# ===== ESTO ES LO QUE TE FALTABA - SERVIDOR PARA RENDER =====
+app = Flask(__name__)
+@app.route('/')
+def home():
+    return "BOT FLORIDA ACTIVO", 200
+# ============================================================
 
 def get_fecha(): return datetime.now(zona).strftime("%d/%m/%Y")
 def es_admin(m): return m.from_user.id == ADMIN_ID or m.chat.id == CANAL_ADMIN_ID
@@ -187,7 +195,7 @@ def set_dia(m):
     try:
         _, f,c1,c2=m.text.split()
         resultados_hoy["dia"]={"fijo":f.zfill(2),"c1":c1.zfill(2),"c2":c2.zfill(2)}
-        bot.reply_to(m, f"✅ DIA guardado: Fijo {f} Corridos {c1}-{c2}\nRecuerda usar /reset cuando quieras liberar topes")
+        bot.reply_to(m, f"✅ DIA guardado: Fijo {f} Corridos {c1}-{c2}")
     except: pass
 
 @bot.message_handler(commands=['set_noche'])
@@ -196,21 +204,20 @@ def set_noche(m):
     try:
         _, f,c1,c2=m.text.split()
         resultados_hoy["noche"]={"fijo":f.zfill(2),"c1":c1.zfill(2),"c2":c2.zfill(2)}
-        bot.reply_to(m, f"✅ NOCHE guardado: Fijo {f} Corridos {c1}-{c2}\nRecuerda usar /reset cuando quieras liberar topes")
+        bot.reply_to(m, f"✅ NOCHE guardado: Fijo {f} Corridos {c1}-{c2}")
     except: pass
 
 @bot.message_handler(commands=['reset'])
 def reset_cmd(m):
     if not es_admin(m): return
     resetear_topes()
-    bot.reply_to(m, "♻️ *TODOS LOS TOPES EN 0* - Ya pueden volver a jugar todos los números", parse_mode="Markdown")
+    bot.reply_to(m, "♻️ *TODOS LOS TOPES EN 0*", parse_mode="Markdown")
 
 @bot.message_handler(commands=['topes'])
 def ver_topes(m):
     if not es_admin(m): return
     try:
-        partes = m.text.split()
-        minimo = int(partes[1]) if len(partes) > 1 else 1
+        minimo = int(m.text.split()[1]) if len(m.text.split()) > 1 else 1
     except:
         minimo = 1
     bot.send_message(m.chat.id, texto_topes(minimo), parse_mode="Markdown")
@@ -254,7 +261,7 @@ def jugada(m):
         else: tope_corrido[num]+=cant
     uid=m.from_user.id
     acumulado[uid]={"texto":texto_nuevo,"total":total_nuevo,"lineas":jugadas_nuevas}
-    bot.reply_to(m, f"🧾 *TICKET CONFIRMADO*\n━━━━━━━━━━━━\n{texto_nuevo}\n💵 Total a pagar: *${total_nuevo}*\n━━━━━━━━━━━━\n💳 *Transfiera a:*\n`{TARJETA}`\n📱 *Confirme al:*\n`{TELEFONO}`\n━━━━━━━━━━━━\n⚠️ *OBLIGATORIO enviar captura de Transfermóvil*\n🛡️ No se aceptan capturas editadas o falsas.\nJugada 100% segura con BOLITA RECOGIDA.FLORIDA", parse_mode="Markdown")
+    bot.reply_to(m, f"🧾 *TICKET CONFIRMADO*\n━━━━━━━━━━━━\n{texto_nuevo}\n💵 Total a pagar: *${total_nuevo}*\n━━━━━━━━━━━━\n💳 *Transfiera a:*\n`{TARJETA}`\n📱 *Confirme al:*\n`{TELEFONO}`\n━━━━━━━━━━━━\n⚠️ *OBLIGATORIO enviar captura de Transfermóvil*", parse_mode="Markdown")
 
 @bot.message_handler(content_types=['photo'])
 def foto(m):
@@ -264,15 +271,24 @@ def foto(m):
     nombre = f"@{m.from_user.username}" if m.from_user.username else m.from_user.first_name
     kb=InlineKeyboardMarkup(row_width=2)
     kb.add(InlineKeyboardButton("✅ Aprobar", callback_data=f"aprobar_{uid}"), InlineKeyboardButton("❌ Rechazar", callback_data=f"rechazar_{uid}"))
-    texto_admin = (f"🔔 *NUEVA JUGADA*\n━━━━━━━━━━━━\n👤 Usuario: {nombre}\n🆔 ID: `{uid}`\n━━━━━━━━━━━━\n{data['texto']}\n💵 Total: *${data['total']}*\n━━━━━━━━━━━━")
+    texto_admin = (f"🔔 *NUEVA JUGADA*\n👤 Usuario: {nombre}\n🆔 ID: `{uid}`\n{data['texto']}\n💵 Total: *${data['total']}*")
     bot.forward_message(CANAL_ADMIN_ID, m.chat.id, m.message_id)
     bot.send_message(CANAL_ADMIN_ID, texto_admin, parse_mode="Markdown", reply_markup=kb)
-    bot.reply_to(m, "📤 *Captura enviada, por favor espere un momento que su jugada sea verificada y aprobada. Gracias por preferirnos* 🙏", parse_mode="Markdown")
+    bot.reply_to(m, "📤 *Captura enviada, espere aprobación* 🙏", parse_mode="Markdown")
 
-print("BOT SEPARADO GANADOR Y RESET + AUTO RESET + TOPES")
-while True:
-    try:
-        bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
-    except Exception as e:
-        print(f"⚠️ Caída: {e} - Reiniciando 5s...")
-        time.sleep(5)
+# ==== ARREGLO PARA RENDER ====
+def run_bot():
+    bot.remove_webhook()
+    while True:
+        try:
+            print("BOT INICIADO")
+            bot.infinity_polling(timeout=60, long_polling_timeout=60, skip_pending=True)
+        except Exception as e:
+            print(f"Caida: {e}")
+            time.sleep(5)
+
+threading.Thread(target=run_bot, daemon=True).start()
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
