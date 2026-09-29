@@ -41,9 +41,9 @@ def auto_reset_hilo():
     while True:
         try:
             ahora = datetime.now(zona)
-            if ahora.hour == 13 and ahora.minute == 36:
+            if ahora.hour == 13 and ahora.minute == 35:
                 resetear_topes()
-                try: bot.send_message(CANAL_ADMIN_ID, "♻️ *AUTO RESET 1:36 PM* - Todos los topes en 0 para la tirada de la noche", parse_mode="Markdown")
+                try: bot.send_message(CANAL_ADMIN_ID, "♻️ *AUTO RESET 1:35 PM* - Todos los topes en 0 para la tirada de la noche", parse_mode="Markdown")
                 except: pass
                 time.sleep(60)
             if ahora.hour == 21 and ahora.minute == 51:
@@ -58,7 +58,7 @@ threading.Thread(target=auto_reset_hilo, daemon=True).start()
 
 def menu_principal():
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🎲 JUGAR AHORA", callback_data="jugar"), InlineKeyboardButton("🦩 VER TIRADA FLORIDA", callback_data="ver_ganador"), InlineKeyboardButton("📖 REGLAS Y PAGOS", callback_data="reglas"))
+    kb.add(InlineKeyboardButton("🎲 JUGAR AHORA", callback_data="jugar"), InlineKeyboardButton("🦩 VER TIRADA FLORIDA", callback_data="ver_ganador"), InlineKeyboardButton("📖 REGLAS Y PAGOS", callback_data="reglas"), InlineKeyboardButton("📞 SOPORTE", callback_data="soporte"))
     return kb
 def boton_atras():
     kb = InlineKeyboardMarkup(); kb.add(InlineKeyboardButton("⬅️ ATRÁS AL MENÚ", callback_data="menu")); return kb
@@ -121,6 +121,38 @@ def texto_topes(minimo=1):
     txt += "\n━━━━━━━━━━━━━━━━━━━━"
     return txt
 
+TEXTO_REGLAS = (
+"📖 *REGLAS OFICIALES - RECOGUIDABOT* 🇨🇺\n"
+"━━━━━━━━━━━━━━━━━━━━\n\n"
+"💰 *1. Mínimo para jugar*\n"
+"👉 Desde 1 CUP por número\n\n"
+"🎯 *2. Máximo por número*\n"
+"🔒 Fijo: Hasta 200\n"
+"🔄 Corrido: Hasta 400\n\n"
+"⏰ *3. Horario de cierre*\n"
+"☀️ Tiro del día: 1:00 PM\n"
+"🌙 Tiro de la noche: 9:00 PM\n"
+"🚫 Después de esa hora no se acepta ninguna jugada\n\n"
+"💵 *4. Lo que se paga*\n"
+"💸 Fijo paga: $80 x $1\n"
+"💸 Corrido paga: $20 x $1\n"
+"━━━━━━━━━━━━━━━━━━━━\n"
+"💎 *BOLITA RECOGIDA.FLORIDA*"
+)
+
+TEXTO_SOPORTE = (
+"📞 *SOPORTE OFICIAL - RECOGUIDABOT* 🇨🇺\n"
+"━━━━━━━━━━━━━━━━━━━━\n\n"
+"🙋‍♂️ ¿Problema con jugada, premio o transferencia?\n\n"
+"👉 Escríbeme directo:\n"
+"💬 Telegram: @AlvanisPivqvaplay\n"
+"📲 WhatsApp / Llamada: 55348244\n\n"
+"⏰ Atención: 8AM - 10PM\n"
+"🙏 Te respondo en cuanto pueda\n"
+"━━━━━━━━━━━━━━━━━━━━\n"
+"💎 *BOLITA RECOGIDA.FLORIDA*"
+)
+
 BIENVENIDA = (
 "🎱🔥 *¡BIENVENIDOS A JUGAR LA LOTERÍA DE LA FLORIDA!* 🔥🦩\n"
 "━━━━━━━━━━━━━━━━━━━━\n"
@@ -143,11 +175,15 @@ BIENVENIDA = (
 "👇 Toca un botón para empezar 👇"
 )
 
-try: bot.set_my_commands([BotCommand("start","🎱 Menú"), BotCommand("ganador","🦩 Ver tirada"), BotCommand("reset","♻️ Resetear topes"), BotCommand("topes","📊 Ver topados")])
+try: bot.set_my_commands([BotCommand("start","🎱 Menú"), BotCommand("ganador","🦩 Ver tirada"), BotCommand("reset","♻️ Resetear topes"), BotCommand("topes","📊 Ver topados"), BotCommand("soporte","📞 Soporte")])
 except: pass
 
 @bot.message_handler(commands=['start'])
 def start(m): bot.send_message(m.chat.id, BIENVENIDA, parse_mode="Markdown", reply_markup=menu_principal())
+
+@bot.message_handler(commands=['soporte'])
+def soporte_cmd(m):
+    bot.send_message(m.chat.id, TEXTO_SOPORTE, parse_mode="Markdown", reply_markup=boton_atras())
 
 @bot.callback_query_handler(func=lambda c: True)
 def callbacks(c):
@@ -157,7 +193,9 @@ def callbacks(c):
         kb=InlineKeyboardMarkup(); kb.add(InlineKeyboardButton("⬅️ ATRÁS", callback_data="menu"))
         bot.edit_message_text("✨ *HAGA SU JUGADA* ✨\n━━━━━━━━━━━━\nEjemplo:\n`10-10` para fijo\n`10-50-10` para fijo y corrido\n`50/59=20` para líneas\n━━━━━━━━━━━━\n💡 Línea es del 50 al 59 a 20 pesos c/u = $200 total", c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=kb)
     elif c.data == "reglas":
-        bot.edit_message_text("📖 *REGLAS*\n🎯 FIJO 80 CUP x $1 - Tope $200\n🔄 CORRIDO 20 CUP x $1 - Tope $400", c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=boton_atras())
+        bot.edit_message_text(TEXTO_REGLAS, c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=boton_atras())
+    elif c.data == "soporte":
+        bot.edit_message_text(TEXTO_SOPORTE, c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=boton_atras())
     elif c.data == "ver_ganador":
         kb=InlineKeyboardMarkup(); kb.add(InlineKeyboardButton("🔄 Actualizar", callback_data="ver_ganador"), InlineKeyboardButton("⬅️ ATRÁS", callback_data="menu"))
         bot.edit_message_text(texto_ganador_bonito(), c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=kb)
@@ -261,7 +299,7 @@ def jugada(m):
         else: tope_corrido[num]+=cant
     uid=m.from_user.id
     acumulado[uid]={"texto":texto_nuevo,"total":total_nuevo,"lineas":jugadas_nuevas}
-    bot.reply_to(m, f"🧾 *TICKET CONFIRMADO*\n━━━━━━━━━━━━\n{texto_nuevo}\n💵 Total a pagar: *${total_nuevo}*\n━━━━━━━━━━━━\n💳 *Transfiera a:*\n`{TARJETA}`\n📱 *Confirme al:*\n`{TELEFONO}`\n━━━━━━━━━━━━\n⚠️ *OBLIGATORIO enviar captura de Transfermóvil*", parse_mode="Markdown")
+    bot.reply_to(m, f"🧾 *TICKET CONFIRMADO*\n━━━━━━━━━━━━\n{texto_nuevo}\n💵 Total a pagar: *${total_nuevo}*\n━━━━━━━━━━━━\n💳 *Transfiera a:*\n`{TARJETA}`\n📱 *Confirme al:*\n`{TELEFONO}`\n━━━━━━━━━━━━\n\n⚠️ Por favor manda una captura de tu transferencia para que tu jugada sea aprobada 📸\n🚫 Cualquier intento de engaño, captura falsa o editada será baneado y reportado inmediatamente.\n", parse_mode="Markdown")
 
 @bot.message_handler(content_types=['photo'])
 def foto(m):
@@ -274,7 +312,7 @@ def foto(m):
     texto_admin = (f"🔔 *NUEVA JUGADA*\n👤 Usuario: {nombre}\n🆔 ID: `{uid}`\n{data['texto']}\n💵 Total: *${data['total']}*")
     bot.forward_message(CANAL_ADMIN_ID, m.chat.id, m.message_id)
     bot.send_message(CANAL_ADMIN_ID, texto_admin, parse_mode="Markdown", reply_markup=kb)
-    bot.reply_to(m, "📤 *Captura enviada, espere aprobación* 🙏", parse_mode="Markdown")
+    bot.reply_to(m, "📸✅ ¡Captura recibida!\n🙏 Tu jugada está en revisión. En cuanto verifique la transferencia te confirmo tu ticket.\n⏳ Por favor espera un momento.\n", parse_mode="Markdown")
 
 # ==== ARREGLO PARA RENDER ====
 def run_bot():
