@@ -175,7 +175,7 @@ BIENVENIDA = (
 "👇 Toca un botón para empezar 👇"
 )
 
-try: bot.set_my_commands([BotCommand("start","🎱 Menú"), BotCommand("ganador","🦩 Ver tirada"), BotCommand("reset","♻️ Resetear topes"), BotCommand("topes","📊 Ver topados"), BotCommand("soporte","📞 Soporte")])
+try: bot.set_my_commands([BotCommand("start","🎱 Menú"), BotCommand("ganador","🦩 Ver tirada"), BotCommand("reset","♻️ Resetear topes"), BotCommand("reset_ganadores","♻️ Resetear DIA y NOCHE"), BotCommand("topes","📊 Ver topados"), BotCommand("soporte","📞 Soporte")])
 except: pass
 
 @bot.message_handler(commands=['start'])
@@ -250,6 +250,14 @@ def reset_cmd(m):
     if not es_admin(m): return
     resetear_topes()
     bot.reply_to(m, "♻️ *TODOS LOS TOPES EN 0*", parse_mode="Markdown")
+
+# ====== NUEVO COMANDO UNICO - RESETEA DIA Y NOCHE ======
+@bot.message_handler(commands=['reset_ganadores'])
+def reset_ganadores_cmd(m):
+    if not es_admin(m): return
+    resultados_hoy["dia"] = None
+    resultados_hoy["noche"] = None
+    bot.reply_to(m, "♻️ *GANADORES RESETEADOS*\nDÍA y NOCHE borrados. Quedaron en 0 esperando resultado.", parse_mode="Markdown")
 
 @bot.message_handler(commands=['topes'])
 def ver_topes(m):
